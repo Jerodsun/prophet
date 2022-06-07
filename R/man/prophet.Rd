@@ -4,14 +4,27 @@
 \alias{prophet}
 \title{Prophet forecaster.}
 \usage{
-prophet(df = NULL, growth = "linear", changepoints = NULL,
-  n.changepoints = 25, changepoint.range = 0.8,
-  yearly.seasonality = "auto", weekly.seasonality = "auto",
-  daily.seasonality = "auto", holidays = NULL,
-  seasonality.mode = "additive", seasonality.prior.scale = 10,
-  holidays.prior.scale = 10, changepoint.prior.scale = 0.05,
-  mcmc.samples = 0, interval.width = 0.8, uncertainty.samples = 1000,
-  fit = TRUE, ...)
+prophet(
+  df = NULL,
+  growth = "linear",
+  changepoints = NULL,
+  n.changepoints = 25,
+  changepoint.range = 0.8,
+  yearly.seasonality = "auto",
+  weekly.seasonality = "auto",
+  daily.seasonality = "auto",
+  holidays = NULL,
+  seasonality.mode = "additive",
+  seasonality.prior.scale = 10,
+  holidays.prior.scale = 10,
+  changepoint.prior.scale = 0.05,
+  mcmc.samples = 0,
+  interval.width = 0.8,
+  uncertainty.samples = 1000,
+  fit = TRUE,
+  backend = NULL,
+  ...
+)
 }
 \arguments{
 \item{df}{(optional) Dataframe containing the history. Must have columns ds
@@ -20,8 +33,8 @@ also have a column cap that specifies the capacity at each ds. If not
 provided, then the model object will be instantiated but not fit; use
 fit.prophet(m, df) to fit the model.}
 
-\item{growth}{String 'linear' or 'logistic' to specify a linear or logistic
-trend.}
+\item{growth}{String 'linear', 'logistic', or 'flat' to specify a linear,
+logistic or flat trend.}
 
 \item{changepoints}{Vector of dates at which to include potential
 changepoints. If not specified, potential changepoints are selected
@@ -36,14 +49,14 @@ first `changepoint.range` proportion of df$ds.}
 will be estimated. Defaults to 0.8 for the first 80%. Not used if
 `changepoints` is specified.}
 
-\item{yearly.seasonality}{Fit yearly seasonality. Can be 'auto', TRUE,
-FALSE, or a number of Fourier terms to generate.}
+\item{yearly.seasonality}{Fit yearly seasonality. Can be 'auto', TRUE, FALSE,
+or a number of Fourier terms to generate.}
 
-\item{weekly.seasonality}{Fit weekly seasonality. Can be 'auto', TRUE,
-FALSE, or a number of Fourier terms to generate.}
+\item{weekly.seasonality}{Fit weekly seasonality. Can be 'auto', TRUE, FALSE,
+or a number of Fourier terms to generate.}
 
-\item{daily.seasonality}{Fit daily seasonality. Can be 'auto', TRUE,
-FALSE, or a number of Fourier terms to generate.}
+\item{daily.seasonality}{Fit daily seasonality. Can be 'auto', TRUE, FALSE,
+or a number of Fourier terms to generate.}
 
 \item{holidays}{data frame with columns holiday (character) and ds (date
 type)and optionally columns lower_window and upper_window which specify a
@@ -70,15 +83,19 @@ inference with the specified number of MCMC samples. If 0, will do MAP
 estimation.}
 
 \item{interval.width}{Numeric, width of the uncertainty intervals provided
-for the forecast. If mcmc.samples=0, this will be only the uncertainty
-in the trend using the MAP estimate of the extrapolated generative model.
-If mcmc.samples>0, this will be integrated over all model parameters,
-which will include uncertainty in seasonality.}
+for the forecast. If mcmc.samples=0, this will be only the uncertainty in
+the trend using the MAP estimate of the extrapolated generative model. If
+mcmc.samples>0, this will be integrated over all model parameters, which
+will include uncertainty in seasonality.}
 
 \item{uncertainty.samples}{Number of simulated draws used to estimate
-uncertainty intervals.}
+uncertainty intervals. Settings this value to 0 or False will disable
+uncertainty estimation and speed up the calculation.}
 
 \item{fit}{Boolean, if FALSE the model is initialized but not fit.}
+
+\item{backend}{Whether to use the "rstan" or "cmdstanr" backend to fit the
+model. If not provided, uses the R_STAN_BACKEND environment variable.}
 
 \item{...}{Additional arguments, passed to \code{\link{fit.prophet}}}
 }

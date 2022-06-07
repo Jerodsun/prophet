@@ -16,53 +16,56 @@ globalVariables(c(
 #' Prophet forecaster.
 #'
 #' @param df (optional) Dataframe containing the history. Must have columns ds
-#'  (date type) and y, the time series. If growth is logistic, then df must
-#'  also have a column cap that specifies the capacity at each ds. If not
-#'  provided, then the model object will be instantiated but not fit; use
-#'  fit.prophet(m, df) to fit the model.
-#' @param growth String 'linear' or 'logistic' to specify a linear or logistic
-#'  trend.
+#'   (date type) and y, the time series. If growth is logistic, then df must
+#'   also have a column cap that specifies the capacity at each ds. If not
+#'   provided, then the model object will be instantiated but not fit; use
+#'   fit.prophet(m, df) to fit the model.
+#' @param growth String 'linear', 'logistic', or 'flat' to specify a linear,
+#'   logistic or flat trend.
 #' @param changepoints Vector of dates at which to include potential
-#'  changepoints. If not specified, potential changepoints are selected
-#'  automatically.
+#'   changepoints. If not specified, potential changepoints are selected
+#'   automatically.
 #' @param n.changepoints Number of potential changepoints to include. Not used
-#'  if input `changepoints` is supplied. If `changepoints` is not supplied,
-#'  then n.changepoints potential changepoints are selected uniformly from the
-#'  first `changepoint.range` proportion of df$ds.
+#'   if input `changepoints` is supplied. If `changepoints` is not supplied,
+#'   then n.changepoints potential changepoints are selected uniformly from the
+#'   first `changepoint.range` proportion of df$ds.
 #' @param changepoint.range Proportion of history in which trend changepoints
-#'  will be estimated. Defaults to 0.8 for the first 80%. Not used if
-#'  `changepoints` is specified.
-#' @param yearly.seasonality Fit yearly seasonality. Can be 'auto', TRUE,
-#'  FALSE, or a number of Fourier terms to generate.
-#' @param weekly.seasonality Fit weekly seasonality. Can be 'auto', TRUE,
-#'  FALSE, or a number of Fourier terms to generate.
-#' @param daily.seasonality Fit daily seasonality. Can be 'auto', TRUE,
-#' FALSE, or a number of Fourier terms to generate.
+#'   will be estimated. Defaults to 0.8 for the first 80%. Not used if
+#'   `changepoints` is specified.
+#' @param yearly.seasonality Fit yearly seasonality. Can be 'auto', TRUE, FALSE,
+#'   or a number of Fourier terms to generate.
+#' @param weekly.seasonality Fit weekly seasonality. Can be 'auto', TRUE, FALSE,
+#'   or a number of Fourier terms to generate.
+#' @param daily.seasonality Fit daily seasonality. Can be 'auto', TRUE, FALSE,
+#'   or a number of Fourier terms to generate.
 #' @param holidays data frame with columns holiday (character) and ds (date
-#'  type)and optionally columns lower_window and upper_window which specify a
-#'  range of days around the date to be included as holidays. lower_window=-2
-#'  will include 2 days prior to the date as holidays. Also optionally can have
-#'  a column prior_scale specifying the prior scale for each holiday.
+#'   type)and optionally columns lower_window and upper_window which specify a
+#'   range of days around the date to be included as holidays. lower_window=-2
+#'   will include 2 days prior to the date as holidays. Also optionally can have
+#'   a column prior_scale specifying the prior scale for each holiday.
 #' @param seasonality.mode 'additive' (default) or 'multiplicative'.
 #' @param seasonality.prior.scale Parameter modulating the strength of the
-#'  seasonality model. Larger values allow the model to fit larger seasonal
-#'  fluctuations, smaller values dampen the seasonality. Can be specified for
-#'  individual seasonalities using add_seasonality.
+#'   seasonality model. Larger values allow the model to fit larger seasonal
+#'   fluctuations, smaller values dampen the seasonality. Can be specified for
+#'   individual seasonalities using add_seasonality.
 #' @param holidays.prior.scale Parameter modulating the strength of the holiday
-#'  components model, unless overridden in the holidays input.
+#'   components model, unless overridden in the holidays input.
 #' @param changepoint.prior.scale Parameter modulating the flexibility of the
-#'  automatic changepoint selection. Large values will allow many changepoints,
-#'  small values will allow few changepoints.
+#'   automatic changepoint selection. Large values will allow many changepoints,
+#'   small values will allow few changepoints.
 #' @param mcmc.samples Integer, if greater than 0, will do full Bayesian
-#'  inference with the specified number of MCMC samples. If 0, will do MAP
-#'  estimation.
+#'   inference with the specified number of MCMC samples. If 0, will do MAP
+#'   estimation.
 #' @param interval.width Numeric, width of the uncertainty intervals provided
-#'  for the forecast. If mcmc.samples=0, this will be only the uncertainty
-#'  in the trend using the MAP estimate of the extrapolated generative model.
-#'  If mcmc.samples>0, this will be integrated over all model parameters,
-#'  which will include uncertainty in seasonality.
+#'   for the forecast. If mcmc.samples=0, this will be only the uncertainty in
+#'   the trend using the MAP estimate of the extrapolated generative model. If
+#'   mcmc.samples>0, this will be integrated over all model parameters, which
+#'   will include uncertainty in seasonality.
 #' @param uncertainty.samples Number of simulated draws used to estimate
-#'  uncertainty intervals.
+#'   uncertainty intervals. Settings this value to 0 or False will disable
+#'   uncertainty estimation and speed up the calculation.
+#' @param backend Whether to use the "rstan" or "cmdstanr" backend to fit the
+#'   model. If not provided, uses the R_STAN_BACKEND environment variable.
 #' @param fit Boolean, if FALSE the model is initialized but not fit.
 #' @param ... Additional arguments, passed to \code{\link{fit.prophet}}
 #'
@@ -78,7 +81,9 @@ globalVariables(c(
 #' @export
 #' @importFrom dplyr "%>%"
 #' @import Rcpp
+#' @rawNamespace import(RcppParallel, except = LdFlags)
 #' @import rlang
+#' @useDynLib prophet, .registration = TRUE
 prophet <- function(df = NULL,
                     growth = 'linear',
                     changepoints = NULL,
@@ -96,11 +101,14 @@ prophet <- function(df = NULL,
                     interval.width = 0.80,
                     uncertainty.samples = 1000,
                     fit = TRUE,
+                    backend = NULL,
                     ...
 ) {
   if (!is.null(changepoints)) {
     n.changepoints <- length(changepoints)
   }
+
+  if (is.null(backend)) backend <- get_stan_backend()
 
   m <- list(
     growth = growth,
@@ -118,6 +126,7 @@ prophet <- function(df = NULL,
     mcmc.samples = mcmc.samples,
     interval.width = interval.width,
     uncertainty.samples = uncertainty.samples,
+    backend = backend,
     specified.changepoints = !is.null(changepoints),
     start = NULL,  # This and following attributes are set during fitting
     y.scale = NULL,
@@ -133,7 +142,8 @@ prophet <- function(df = NULL,
     history.dates = NULL,
     train.holiday.names = NULL,
     train.component.cols = NULL,
-    component.modes = NULL
+    component.modes = NULL,
+    fit.kwargs = list()
   )
   m <- validate_inputs(m)
   class(m) <- append("prophet", class(m))
@@ -151,8 +161,8 @@ prophet <- function(df = NULL,
 #'
 #' @keywords internal
 validate_inputs <- function(m) {
-  if (!(m$growth %in% c('linear', 'logistic'))) {
-    stop("Parameter 'growth' should be 'linear' or 'logistic'.")
+  if (!(m$growth %in% c('linear', 'logistic', 'flat'))) {
+    stop("Parameter 'growth' should be 'linear', 'logistic', or 'flat'.")
   }
   if ((m$changepoint.range < 0) | (m$changepoint.range > 1)) {
     stop("Parameter 'changepoint.range' must be in [0, 1]")
@@ -165,6 +175,9 @@ validate_inputs <- function(m) {
       stop('Holidays dataframe must have ds field.')
     }
     m$holidays$ds <- as.Date(m$holidays$ds)
+    if (any(is.na(m$holidays$ds)) | any(is.na(m$holidays$holiday))) {
+      stop('Found NA in the holidays dataframe.')
+    }
     has.lower <- exists('lower_window', where = m$holidays)
     has.upper <- exists('upper_window', where = m$holidays)
     if (has.lower + has.upper == 1) {
@@ -234,65 +247,17 @@ validate_column_name <- function(
   }
 }
 
-
-#' Load compiled Stan model
-#'
-#' @param model String 'linear' or 'logistic' to specify a linear or logistic
-#'  trend.
-#'
-#' @return Stan model.
-#'
-#' @keywords internal
-get_prophet_stan_model <- function() {
-  ## If the cached model doesn't work, just compile a new one.
-  tryCatch({
-    binary <- system.file(
-      'libs',
-      Sys.getenv('R_ARCH'),
-      'prophet_stan_model.RData',
-      package = 'prophet',
-      mustWork = TRUE
-    )
-    load(binary)
-    obj.name <- 'model.stanm'
-    stanm <- eval(parse(text = obj.name))
-
-    ## Should cause an error if the model doesn't work.
-    stanm@mk_cppmodule(stanm)
-    stanm
-  }, error = function(cond) {
-    compile_stan_model()
-  })
-}
-
-#' Compile Stan model
-#'
-#' @param model String 'linear' or 'logistic' to specify a linear or logistic
-#'  trend.
-#'
-#' @return Stan model.
-#'
-#' @keywords internal
-compile_stan_model <- function() {
-  fn <- 'stan/prophet.stan'
-
-  stan.src <- system.file(fn, package = 'prophet', mustWork = TRUE)
-  stanc <- rstan::stanc(stan.src)
-
-  return(rstan::stan_model(stanc_ret = stanc, model_name = 'prophet_model'))
-}
-
 #' Convert date vector
 #'
-#' Convert the date to POSIXct object
+#' Convert the date to POSIXct object. Timezones are stripped and replaced
+#' with GMT.
 #'
-#' @param ds Date vector, can be consisted of characters
-#' @param tz string time zone
+#' @param ds Date vector
 #'
 #' @return vector of POSIXct object converted from date
 #'
 #' @keywords internal
-set_date <- function(ds = NULL, tz = "GMT") {
+set_date <- function(ds) {
   if (length(ds) == 0) {
     return(NULL)
   }
@@ -301,12 +266,20 @@ set_date <- function(ds = NULL, tz = "GMT") {
     ds <- as.character(ds)
   }
 
-  if (min(nchar(ds), na.rm=TRUE) < 12) {
-    ds <- as.POSIXct(ds, format = "%Y-%m-%d", tz = tz)
-  } else {
-    ds <- as.POSIXct(ds, format = "%Y-%m-%d %H:%M:%S", tz = tz)
+  # If a datetime, strip timezone and replace with GMT.
+  if (lubridate::is.instant(ds)) {
+    ds <- as.POSIXct(lubridate::force_tz(ds, "GMT"), tz = "GMT")
   }
-  attr(ds, "tzone") <- tz
+  else {
+    # Assume it can be coerced into POSIXct
+    if (min(nchar(ds), na.rm=TRUE) < 12) {
+        ds <- as.POSIXct(ds, format = "%Y-%m-%d", tz = "GMT")
+    } else {
+        ds <- as.POSIXct(ds, format = "%Y-%m-%d %H:%M:%S", tz = "GMT")
+    }
+  }
+
+  attr(ds, "tzone") <- "GMT"
   return(ds)
 }
 
@@ -327,7 +300,7 @@ time_diff <- function(ds1, ds2, units = "days") {
 
 #' Prepare dataframe for fitting or predicting.
 #'
-#' Adds a time index and scales y. Creates auxillary columns 't', 't_ix',
+#' Adds a time index and scales y. Creates auxiliary columns 't', 't_ix',
 #' 'y_scaled', and 'cap_scaled'. These columns are used during both fitting
 #' and predicting.
 #'
@@ -342,9 +315,9 @@ time_diff <- function(ds1, ds2, units = "days") {
 setup_dataframe <- function(m, df, initialize_scales = FALSE) {
   if (exists('y', where=df)) {
     df$y <- as.numeric(df$y)
-  }
-  if (any(is.infinite(df$y))) {
-    stop("Found infinity in column y.")
+    if (any(is.infinite(df$y))) {
+      stop("Found infinity in column y.")
+    }
   }
   df$ds <- set_date(df$ds)
   if (anyNA(df$ds)) {
@@ -373,7 +346,7 @@ setup_dataframe <- function(m, df, initialize_scales = FALSE) {
       df[[condition.name]] <- as.logical(df[[condition.name]])
     }
   }
-  
+
   df <- df %>%
     dplyr::arrange(ds)
 
@@ -609,7 +582,7 @@ make_holiday_features <- function(m, dates, holidays) {
       }
       names <- paste(.$holiday, '_delim_', ifelse(offsets < 0, '-', '+'),
                      abs(offsets), sep = '')
-      dplyr::data_frame(ds = .$ds + offsets * 24 * 3600, holiday = names)
+      dplyr::tibble(ds = .$ds + offsets * 24 * 3600, holiday = names)
     }) %>%
     dplyr::mutate(x = 1.) %>%
     tidyr::spread(holiday, x, fill = 0)
@@ -732,7 +705,7 @@ add_regressor <- function(
 #' specified, m$seasonality.mode will be used (defaults to 'additive').
 #' Additive means the seasonality will be added to the trend, multiplicative
 #' means it will multiply the trend.
-#' 
+#'
 #' If condition.name is provided, the dataframe passed to `fit` and `predict`
 #' should have a column with the specified condition.name containing booleans
 #' which decides when to apply seasonality.
@@ -749,7 +722,7 @@ add_regressor <- function(
 #'
 #' @export
 add_seasonality <- function(
-  m, name, period, fourier.order, prior.scale = NULL, mode = NULL, 
+  m, name, period, fourier.order, prior.scale = NULL, mode = NULL,
   condition.name = NULL
 ) {
   if (!is.null(m$history)) {
@@ -843,7 +816,7 @@ add_country_holidays <- function(m, country_name) {
 #'
 #' @return List with items
 #'  seasonal.features: Dataframe with regressor features,
-#'  prior.scales: Array of prior scales for each colum of the features
+#'  prior.scales: Array of prior scales for each column of the features
 #'    dataframe.
 #'  component.cols: Dataframe with indicators for which regression components
 #'    correspond to which columns.
@@ -923,7 +896,7 @@ make_all_seasonality_features <- function(m, df) {
 #'
 #' @keywords internal
 regressor_column_matrix <- function(m, seasonal.features, modes) {
-  components <- dplyr::data_frame(component = colnames(seasonal.features)) %>%
+  components <- dplyr::tibble(component = colnames(seasonal.features)) %>%
     dplyr::mutate(col = seq_len(dplyr::n())) %>%
     tidyr::separate(component, c('component', 'part'), sep = "_delim_",
                     extra = "merge", fill = "right") %>%
@@ -1098,7 +1071,28 @@ set_auto_seasonalities <- function(m) {
   return(m)
 }
 
-#' Initialize linear growth.
+#' Initialize flat growth.
+#'
+#' Provides a strong initialization for flat growth by setting the
+#' growth to 0 and calculates the offset parameter that pass the
+#' function through the mean of the the y_scaled values.
+#'
+#' @param df Data frame with columns ds (date), y_scaled (scaled time series),
+#'  and t (scaled time).
+#'
+#' @return A vector (k, m) with the rate (k) and offset (m) of the flat
+#'  growth function.
+#'
+#' @keywords internal
+flat_growth_init <- function(df) {
+  # Initialize the rate
+  k <- 0
+  # And the offset
+  m <- mean(df$y_scaled)
+  return(c(k, m))
+}
+
+#' Initialize constant growth.
 #'
 #' Provides a strong initialization for linear growth by calculating the
 #' growth and offset parameters that pass the function through the first and
@@ -1193,7 +1187,7 @@ fit.prophet <- function(m, df, ...) {
   if (nrow(history) < 2) {
     stop("Dataframe has less than 2 non-NA rows.")
   }
-  m$history.dates <- sort(set_date(df$ds))
+  m$history.dates <- sort(set_date(unique(df$ds)))
 
   out <- setup_dataframe(m, history, initialize_scales = TRUE)
   history <- out$df
@@ -1207,6 +1201,7 @@ fit.prophet <- function(m, df, ...) {
   component.cols <- out2$component.cols
   m$train.component.cols <- component.cols
   m$component.modes <- out2$modes
+  m$fit.kwargs <- list(...)
 
   m <- set_changepoints(m)
 
@@ -1221,7 +1216,7 @@ fit.prophet <- function(m, df, ...) {
     X = as.matrix(seasonal.features),
     sigmas = array(prior.scales),
     tau = m$changepoint.prior.scale,
-    trend_indicator = as.numeric(m$growth == 'logistic'),
+    trend_indicator = switch(m$growth, 'linear'=0, 'logistic'=1, 'flat'=2),
     s_a = array(component.cols$additive_terms),
     s_m = array(component.cols$multiplicative_terms)
   )
@@ -1230,16 +1225,15 @@ fit.prophet <- function(m, df, ...) {
   if (m$growth == 'linear') {
     dat$cap <- rep(0, nrow(history))  # Unused inside Stan
     kinit <- linear_growth_init(history)
-  } else {
+  } else if (m$growth == 'flat') {
+    dat$cap <- rep(0, nrow(history)) # Unused inside Stan
+    kinit <- flat_growth_init(history)
+  } else if (m$growth == 'logistic') {
     dat$cap <- history$cap_scaled  # Add capacities to the Stan data
     kinit <- logistic_growth_init(history)
   }
 
-  if (exists(".prophet.stan.model")) {
-    model <- .prophet.stan.model
-  } else {
-    model <- get_prophet_stan_model()
-  }
+  model <- .load_model(m$backend)
 
   stan_init <- function() {
     list(k = kinit[1],
@@ -1250,44 +1244,24 @@ fit.prophet <- function(m, df, ...) {
     )
   }
 
-  if (min(history$y) == max(history$y)) {
+  if (min(history$y) == max(history$y) &
+        (m$growth %in% c('linear', 'flat'))) {
     # Nothing to fit.
     m$params <- stan_init()
     m$params$sigma_obs <- 0.
     n.iteration <- 1.
-  } else if (m$mcmc.samples > 0) {
-    args <- list(
-      object = model,
-      data = dat,
-      init = stan_init,
-      iter = m$mcmc.samples
-    )
-    args <- utils::modifyList(args, list(...))
-    stan.fit <- do.call(rstan::sampling, args)
-    m$params <- rstan::extract(stan.fit)
-    n.iteration <- length(m$params$k)
   } else {
-    args <- list(
-      object = model,
-      data = dat,
-      init = stan_init,
-      algorithm = if(dat$T < 100) {'Newton'} else {'LBFGS'},
-      iter = 1e4,
-      as_vector = FALSE
-    )
-    args <- utils::modifyList(args, list(...))
-    stan.fit <- do.call(rstan::optimizing, args)
-    if (stan.fit$return_code != 0) {
-      message(
-        'Optimization terminated abnormally. Falling back to Newton optimizer.'
-      )
-      args$algorithm = 'Newton'
-      stan.fit <- do.call(rstan::optimizing, args)
+    if (m$mcmc.samples > 0) {
+      args <- .stan_args(model, dat, stan_init, m$backend, type = "mcmc", m$mcmc.samples, ...)
+      model_output <- .sampling(args, m$backend)
+    } else {
+      args <- .stan_args(model, dat, stan_init, m$backend, type = "optimize", ...)
+      model_output <- .fit(args, m$backend)
     }
-    m$params <- stan.fit$par
-    n.iteration <- 1
+    m$stan.fit <- model_output$stan_fit
+    m$params <- model_output$params
+    n.iteration <- model_output$n_iteration
   }
-  
   # Cast the parameters to have consistent form, whether full bayes or MAP
   for (name in c('delta', 'beta')){
     m$params[[name]] <- matrix(m$params[[name]], nrow = n.iteration)
@@ -1342,7 +1316,11 @@ predict.prophet <- function(object, df = NULL, ...) {
 
   df$trend <- predict_trend(object, df)
   seasonal.components <- predict_seasonal_components(object, df)
-  intervals <- predict_uncertainty(object, df)
+  if (object$uncertainty.samples) {
+    intervals <- predict_uncertainty(object, df)
+  } else {
+    intervals <- NULL
+    }
 
   # Drop columns except ds, cap, floor, and trend
   cols <- c('ds', 'trend')
@@ -1356,6 +1334,19 @@ predict.prophet <- function(object, df = NULL, ...) {
   df <- dplyr::bind_cols(df, seasonal.components, intervals)
   df$yhat <- df$trend * (1 + df$multiplicative_terms) + df$additive_terms
   return(df)
+}
+
+#' Evaluate the flat trend function.
+#'
+#' @param t Vector of times on which the function is evaluated.
+#' @param m Float initial offset.
+#'
+#' @return Vector y(t).
+#'
+#' @keywords internal
+flat_trend <- function(t, m) {
+  y <- rep(m, length(t))
+  return(y)
 }
 
 #' Evaluate the piecewise linear function.
@@ -1432,7 +1423,9 @@ predict_trend <- function(model, df) {
   t <- df$t
   if (model$growth == 'linear') {
     trend <- piecewise_linear(t, deltas, k, param.m, model$changepoints.t)
-  } else {
+  } else if (model$growth == 'flat') {
+     trend <- flat_trend(t, param.m)
+  } else if (model$growth == 'logistic') {
     cap <- df$cap_scaled
     trend <- piecewise_logistic(
       t, cap, deltas, k, param.m, model$changepoints.t)
@@ -1453,8 +1446,10 @@ predict_seasonal_components <- function(m, df) {
   m <- out$m
   seasonal.features <- out$seasonal.features
   component.cols <- out$component.cols
-  lower.p <- (1 - m$interval.width)/2
-  upper.p <- (1 + m$interval.width)/2
+  if (m$uncertainty.samples){
+    lower.p <- (1 - m$interval.width)/2
+    upper.p <- (1 + m$interval.width)/2
+  }
 
   X <- as.matrix(seasonal.features)
   component.predictions <- data.frame(matrix(ncol = 0, nrow = nrow(X)))
@@ -1466,10 +1461,12 @@ predict_seasonal_components <- function(m, df) {
       comp <- comp * m$y.scale
     }
     component.predictions[[component]] <- rowMeans(comp, na.rm = TRUE)
-    component.predictions[[paste0(component, '_lower')]] <- apply(
-      comp, 1, stats::quantile, lower.p, na.rm = TRUE)
-    component.predictions[[paste0(component, '_upper')]] <- apply(
-      comp, 1, stats::quantile, upper.p, na.rm = TRUE)
+    if (m$uncertainty.samples){
+      component.predictions[[paste0(component, '_lower')]] <- apply(
+        comp, 1, stats::quantile, lower.p, na.rm = TRUE)
+      component.predictions[[paste0(component, '_upper')]] <- apply(
+        comp, 1, stats::quantile, upper.p, na.rm = TRUE)
+    }
   }
   return(component.predictions)
 }
@@ -1556,7 +1553,7 @@ predict_uncertainty <- function(m, df) {
   colnames(intervals) <- paste(rep(c('yhat', 'trend'), each=2),
                                c('lower', 'upper'), sep = "_")
 
-  return(dplyr::as_data_frame(intervals))
+  return(dplyr::as_tibble(intervals))
 }
 
 #' Simulate observations from the extrapolated generative model.
@@ -1628,7 +1625,9 @@ sample_predictive_trend <- function(model, df, iteration) {
   # Get the corresponding trend
   if (model$growth == 'linear') {
     trend <- piecewise_linear(t, deltas, k, param.m, changepoint.ts)
-  } else {
+  } else if (model$growth == 'flat') {
+    trend <- flat_trend(t, param.m)
+  } else if (model$growth == 'logistic') {
     cap <- df$cap_scaled
     trend <- piecewise_logistic(t, cap, deltas, k, param.m, changepoint.ts)
   }
@@ -1649,7 +1648,7 @@ sample_predictive_trend <- function(model, df, iteration) {
 #' @export
 make_future_dataframe <- function(m, periods, freq = 'day',
                                   include_history = TRUE) {
-  # For backwards compatability with previous zoo date type,
+  # For backwards compatibility with previous zoo date type,
   if (freq == 'm') {
     freq <- 'month'
   }
